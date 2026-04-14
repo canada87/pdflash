@@ -35,12 +35,14 @@
       </div>
     {/if}
 
-    <!-- Delete button -->
-    <button
+    <!-- Delete button (span to avoid nested <button> inside card <button>) -->
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <span
       class="btn-delete"
       on:click|stopPropagation={() => dispatch('delete', doc)}
       title="Delete document"
-    >✕</button>
+    >✕</span>
 
     <!-- Tag chips + edit button -->
     <div class="tag-row">
