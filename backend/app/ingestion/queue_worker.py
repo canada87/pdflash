@@ -10,6 +10,7 @@ Async ingestion queue.
 """
 from __future__ import annotations
 import asyncio
+import functools
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 
@@ -69,12 +70,21 @@ class IngestionQueue:
         while True:
             pdf_path, force = await self._q.get()
             try:
+                def _progress_cb(doc_id, title, done, total):
+                    pct = int(100 * done / total)
+                    asyncio.run_coroutine_threadsafe(
+                        self._broadcast({
+                            "type": "doc_progress",
+                            "doc_id": doc_id,
+                            "title": title,
+                            "pct": pct,
+                        }),
+                        loop,
+                    )
+
                 doc_id = await loop.run_in_executor(
                     self._pool,
-                    _ingest_sync,
-                    pdf_path,
-                    self._config,
-                    force,
+                    functools.partial(_ingest_sync, pdf_path, self._config, force, _progress_cb),
                 )
                 await self._broadcast({"type": "doc_ready", "doc_id": doc_id})
             except Exception as exc:
@@ -85,7 +95,7 @@ class IngestionQueue:
                 self._q.task_done()
 
 
-def _ingest_sync(pdf_path: str, config: Config, force: bool) -> int:
+def _ingest_sync(pdf_path: str, config: Config, force: bool, progress_cb=None) -> int:
     """
     Runs in a ThreadPoolExecutor worker thread.
     Creates its own SQLite connection so it doesn't share state with the
@@ -94,6 +104,6 @@ def _ingest_sync(pdf_path: str, config: Config, force: bool) -> int:
     conn = sqlite3.connect(config.db_path, check_same_thread=True)
     conn.row_factory = sqlite3.Row
     try:
-        return ingest_pdf(pdf_path, config, conn, force=force)
+        return ingest_pdf(pdf_path, config, conn, force=force, progress_cb=progress_cb)
     finally:
         conn.close()

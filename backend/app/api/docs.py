@@ -28,6 +28,15 @@ async def list_docs(
     )
 
 
+@router.get("/docs/indexing")
+async def list_indexing_docs():
+    """Returns docs currently being ingested (status=indexing)."""
+    rows = state.conn.execute(
+        "SELECT id, title FROM doc WHERE status = 'indexing' ORDER BY added_at DESC"
+    ).fetchall()
+    return [{"id": r["id"], "title": r["title"], "pct": 0} for r in rows]
+
+
 @router.get("/docs/{doc_id:int}")
 async def get_doc(doc_id: int):
     doc = get_doc_by_id(state.conn, doc_id)

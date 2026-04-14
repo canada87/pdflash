@@ -11,6 +11,9 @@
   let uploading     = false;
   let es;
 
+  // doc_id (number) → {title, pct}
+  let processingDocs = {};
+
   // ── Filter + sort state ───────────────────────────────────────────────────
   let sort      = 'recent';   // 'recent' | 'title' | 'progress'
   let activeTag = null;       // string tag name, or null = All
@@ -40,12 +43,28 @@
     if (activeTag && !allTags.some(t => t.name === activeTag)) activeTag = null;
   }
 
-  onMount(() => {
+  onMount(async () => {
     reload();
+
+    // Recover any in-progress ingestions (e.g. after page refresh)
+    try {
+      const indexing = await fetch('/api/docs/indexing').then(r => r.json());
+      for (const d of indexing) {
+        processingDocs[d.id] = { title: d.title, pct: 0 };
+      }
+      if (indexing.length) processingDocs = { ...processingDocs };
+    } catch (_) {}
+
     es = new EventSource('/api/events');
     es.onmessage = (e) => {
       const ev = JSON.parse(e.data);
-      if (ev.type === 'doc_ready' || ev.type === 'doc_failed') reload();
+      if (ev.type === 'doc_progress') {
+        processingDocs = { ...processingDocs, [ev.doc_id]: { title: ev.title, pct: ev.pct } };
+      } else if (ev.type === 'doc_ready' || ev.type === 'doc_failed') {
+        const { [ev.doc_id]: _, ...rest } = processingDocs;
+        processingDocs = rest;
+        reload();
+      }
     };
   });
 
@@ -185,6 +204,21 @@
       </div>
     {/if}
   </div>
+
+  {#if Object.keys(processingDocs).length > 0}
+    <section class="processing">
+      <h2>Processing</h2>
+      {#each Object.entries(processingDocs) as [id, doc]}
+        <div class="proc-row">
+          <span class="proc-title">{doc.title}</span>
+          <div class="proc-track">
+            <div class="proc-fill" style="width:{doc.pct}%"></div>
+          </div>
+          <span class="proc-pct">{doc.pct}%</span>
+        </div>
+      {/each}
+    </section>
+  {/if}
 
   {#if continueReading.length > 0}
     <section>
@@ -396,6 +430,45 @@
   }
 
   .hint { color: #555; font-size: .875rem; }
+
+  /* ── Processing section ── */
+  .processing { margin-bottom: 28px; }
+
+  .proc-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+  }
+  .proc-title {
+    flex: 1;
+    font-size: .8rem;
+    color: #aaa;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .proc-track {
+    width: 160px;
+    flex-shrink: 0;
+    height: 4px;
+    background: #222;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .proc-fill {
+    height: 100%;
+    background: #3b82f6;
+    border-radius: 2px;
+    transition: width 300ms linear;
+  }
+  .proc-pct {
+    font-size: .72rem;
+    color: #555;
+    width: 34px;
+    text-align: right;
+    flex-shrink: 0;
+  }
 
   /* ── Tag management modal ── */
   .backdrop {

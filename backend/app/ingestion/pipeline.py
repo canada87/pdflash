@@ -42,6 +42,7 @@ def ingest_pdf(
     conn: sqlite3.Connection,
     *,
     force: bool = False,
+    progress_cb=None,
 ) -> int:
     """
     Ingest a single PDF.  Returns doc_id.
@@ -124,6 +125,8 @@ def ingest_pdf(
                 done += 1
                 if done % 20 == 0 or done == page_count:
                     print(f"    rendered {done}/{page_count} pages …", flush=True)
+                if progress_cb:
+                    progress_cb(doc_id, title, done, page_count)
     except Exception as exc:
         update_doc_status(conn, doc_id, "failed", fail_reason=str(exc))
         raise
