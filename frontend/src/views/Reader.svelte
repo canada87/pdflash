@@ -1,26 +1,54 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import ThumbStrip from '../components/ThumbStrip.svelte';
-  import { getDoc, updateProgress } from '../lib/api.js';
+  import TocPanel   from '../components/TocPanel.svelte';
+  import SearchPanel from '../components/SearchPanel.svelte';
+  import { getDoc, updateProgress, getBookmarks, createBookmark, deleteBookmark as apiDeleteBm } from '../lib/api.js';
 
   export let docId;
   export let initialPage = 1;
 
-  let doc = null;
-  let page = initialPage;
-  let loading = true;
+  let doc       = null;
+  let page      = initialPage;
+  let loading   = true;
   let imgLoaded = false;
   let progressTimer = null;
-  let showStrip = true;
 
-  // Derived
-  $: padded = (n) => String(n).padStart(4, '0');
-  $: pageUrl = doc ? `/cache/pages/${doc.hash}/screen/${padded(page)}.webp` : '';
-  $: atFirst = page <= 1;
-  $: atLast  = doc ? page >= doc.page_count : false;
+  // ── UI state ──────────────────────────────────────────────────────────────
+  // panel: which right-side panel is open (null = none)
+  let panel      = 'thumbs';   // null | 'thumbs' | 'toc'
+  let showSearch = false;
+  let doubleMode = false;
+
+  // ── Zoom + pan ────────────────────────────────────────────────────────────
+  let zoom  = 1.0;
+  let panX  = 0;
+  let panY  = 0;
+  // Mouse state (not reactive — only read in handlers)
+  let _md   = null;   // {x, y, panX, panY} snapshot on mousedown
+  let _drag = false;  // whether current press has crossed drag threshold
+
+  // ── Bookmarks ─────────────────────────────────────────────────────────────
+  let bookmarks = [];
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+  $: step         = doubleMode ? 2 : 1;
+  $: atFirst      = page <= 1;
+  $: atLast       = doc ? page + step > doc.page_count : false;
+  $: isBookmarked = bookmarks.some(b => b.page === page);
+  $: outline      = (() => {
+    try { return doc?.outline_json ? JSON.parse(doc.outline_json) : []; }
+    catch { return []; }
+  })();
+
+  function pageUrl(n) {
+    return doc ? `/cache/pages/${doc.hash}/screen/${String(n).padStart(4, '0')}.webp` : '';
+  }
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────────
 
   onMount(async () => {
-    doc = await getDoc(docId);
+    [doc, bookmarks] = await Promise.all([getDoc(docId), getBookmarks(docId)]);
     page = Math.max(1, Math.min(initialPage, doc.page_count));
     loading = false;
     preload();
@@ -32,12 +60,19 @@
     clearTimeout(progressTimer);
   });
 
+  // ── Navigation ────────────────────────────────────────────────────────────
+
   function goTo(n) {
     if (!doc) return;
-    const p = Math.max(1, Math.min(n, doc.page_count));
+    let p = Math.max(1, Math.min(n, doc.page_count));
+    // In double mode always land on an even-numbered page (start of spread),
+    // except if we're at page 1 (cover shown alone on the left).
+    if (doubleMode && p > 1 && p % 2 !== 0) p = Math.max(1, p - 1);
     if (p === page) return;
-    page = p;
+    page      = p;
     imgLoaded = false;
+    panX      = 0;
+    panY      = 0;
     location.hash = `#/r/${docId}/${page}`;
     scheduleProgress();
     preload();
@@ -45,11 +80,11 @@
 
   function preload() {
     if (!doc) return;
-    for (const n of [page + 1, page + 2, page - 1]) {
-      if (n >= 1 && n <= doc.page_count) {
-        const img = new Image();
-        img.src = `/cache/pages/${doc.hash}/screen/${padded(n)}.webp`;
-      }
+    const nbs = doubleMode
+      ? [page + 2, page + 3, page + 4, page - 2]
+      : [page + 1, page + 2, page - 1];
+    for (const n of nbs) {
+      if (n >= 1 && n <= doc.page_count) new Image().src = pageUrl(n);
     }
   }
 
@@ -58,37 +93,114 @@
     progressTimer = setTimeout(() => updateProgress(docId, page), 300);
   }
 
+  // ── Keyboard ─────────────────────────────────────────────────────────────
+
   function handleKey(e) {
-    // Don't steal keys when typing in an input
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
     switch (e.key) {
       case 'ArrowRight': case 'PageDown': case ' ':
-        e.preventDefault(); goTo(page + 1); break;
+        e.preventDefault(); goTo(page + step); break;
       case 'ArrowLeft': case 'PageUp':
-        e.preventDefault(); goTo(page - 1); break;
+        e.preventDefault(); goTo(page - step); break;
       case 'Home': e.preventDefault(); goTo(1); break;
       case 'End':  e.preventDefault(); goTo(doc?.page_count ?? 1); break;
       case 'f': case 'F': toggleFullscreen(); break;
       case 'g': case 'G': promptGoTo(); break;
-      case 't': case 'T': showStrip = !showStrip; break;
+      case 't': case 'T': togglePanel('thumbs'); break;
+      case 'o': case 'O': togglePanel('toc'); break;
+      case 'd': case 'D': toggleDouble(); break;
+      case 'b': case 'B': toggleBookmark(); break;
+      case '/':  e.preventDefault(); showSearch = !showSearch; break;
+      case '+': case '=': zoomBy(1.2); break;
+      case '-':  zoomBy(1 / 1.2); break;
+      case '0':  resetZoom(); break;
       case 'Escape':
-        if (document.fullscreenElement) document.exitFullscreen();
+        if      (document.fullscreenElement) document.exitFullscreen();
+        else if (showSearch)                 showSearch = false;
+        else if (panel && panel !== 'thumbs') panel = null;
         break;
     }
   }
 
+  // ── Panel / mode helpers ──────────────────────────────────────────────────
+
+  function togglePanel(name) {
+    panel = panel === name ? null : name;
+  }
+
+  function toggleDouble() {
+    doubleMode = !doubleMode;
+    // Snap to start of a spread when entering double mode
+    if (doubleMode && page > 1 && page % 2 !== 0) page = Math.max(1, page - 1);
+    imgLoaded = false;
+    preload();
+  }
+
   function toggleFullscreen() {
-    if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen?.();
-    } else {
-      document.exitFullscreen?.();
-    }
+    if (!document.fullscreenElement) document.documentElement.requestFullscreen?.();
+    else document.exitFullscreen?.();
   }
 
   function promptGoTo() {
     const raw = prompt(`Go to page (1–${doc?.page_count}):`);
     const n = parseInt(raw ?? '', 10);
     if (!isNaN(n)) goTo(n);
+  }
+
+  // ── Bookmarks ─────────────────────────────────────────────────────────────
+
+  async function toggleBookmark() {
+    const existing = bookmarks.find(b => b.page === page);
+    if (existing) {
+      await apiDeleteBm(existing.id);
+      bookmarks = bookmarks.filter(b => b.id !== existing.id);
+    } else {
+      const bm = await createBookmark(docId, page);
+      bookmarks = [...bookmarks, bm];
+    }
+  }
+
+  async function deleteBookmark(id) {
+    await apiDeleteBm(id);
+    bookmarks = bookmarks.filter(b => b.id !== id);
+  }
+
+  // ── Zoom + pan ────────────────────────────────────────────────────────────
+
+  function zoomBy(factor) {
+    zoom = Math.max(0.5, Math.min(5.0, zoom * factor));
+    if (zoom <= 1.0) { zoom = 1.0; panX = 0; panY = 0; }
+  }
+  function resetZoom() { zoom = 1.0; panX = 0; panY = 0; }
+
+  function onWheel(e) {
+    e.preventDefault();
+    zoomBy(e.deltaY < 0 ? 1.1 : 1 / 1.1);
+  }
+
+  function onMouseDown(e) {
+    if (e.button !== 0) return;
+    _drag = false;
+    _md   = { x: e.clientX, y: e.clientY, panX, panY };
+  }
+
+  function onMouseMove(e) {
+    if (!_md) return;
+    const dx = e.clientX - _md.x;
+    const dy = e.clientY - _md.y;
+    if (!_drag && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) _drag = true;
+    if (_drag && zoom > 1.0) {
+      panX = _md.panX + dx / zoom;
+      panY = _md.panY + dy / zoom;
+    }
+  }
+
+  function onMouseUp() { _md = null; }
+
+  function onAreaClick() {
+    if (_drag) { _drag = false; return; }  // was a drag, not a tap
+    if (zoom > 1.0) return;                // let user pan, not flip page
+    goTo(page + step);
   }
 </script>
 
@@ -103,52 +215,138 @@
     <span class="title">{doc.title}</span>
 
     <div class="nav">
-      <button on:click={() => goTo(page - 1)} disabled={atFirst} title="Previous (←)">‹</button>
-      <button class="page-input-wrap" on:click={promptGoTo} title="Jump to page (G)">
-        <span>{page}</span><span class="of">/ {doc.page_count}</span>
+      <button on:click={() => goTo(page - step)} disabled={atFirst} title="Previous (←)">‹</button>
+      <button class="page-btn" on:click={promptGoTo} title="Jump to page (G)">
+        <span>
+          {page}{#if doubleMode && page + 1 <= doc.page_count}–{page + 1}{/if}
+        </span>
+        <span class="of">/ {doc.page_count}</span>
       </button>
-      <button on:click={() => goTo(page + 1)} disabled={atLast} title="Next (→)">›</button>
+      <button on:click={() => goTo(page + step)} disabled={atLast} title="Next (→)">›</button>
     </div>
 
     <div class="toolbar-right">
-      <button class="icon-btn" on:click={() => showStrip = !showStrip} title="Toggle strip (T)">
-        ☰
-      </button>
-      <button class="icon-btn" on:click={toggleFullscreen} title="Fullscreen (F)">
-        ⛶
-      </button>
+      {#if zoom !== 1.0}
+        <button class="icon-btn zoom-chip" on:click={resetZoom} title="Reset zoom (0)">
+          {Math.round(zoom * 100)}%
+        </button>
+      {/if}
+      <button
+        class="icon-btn"
+        class:active={showSearch}
+        on:click={() => (showSearch = !showSearch)}
+        title="Search (/)">⌕</button>
+      <button
+        class="icon-btn"
+        class:active={isBookmarked}
+        on:click={toggleBookmark}
+        title="Bookmark this page (B)">{isBookmarked ? '★' : '☆'}</button>
+      <button
+        class="icon-btn"
+        class:active={panel === 'toc'}
+        on:click={() => togglePanel('toc')}
+        title="Outline + bookmarks (O)">≡</button>
+      <button
+        class="icon-btn"
+        class:active={doubleMode}
+        on:click={toggleDouble}
+        title="Double-page mode (D)">⊞</button>
+      <button
+        class="icon-btn"
+        class:active={panel === 'thumbs'}
+        on:click={() => togglePanel('thumbs')}
+        title="Thumbnails (T)">☰</button>
+      <button class="icon-btn" on:click={toggleFullscreen} title="Fullscreen (F)">⛶</button>
     </div>
   </div>
 
   <!-- ── Main area ── -->
   <div class="body">
 
-    <!-- Page display — click advances to next page -->
+    <!-- Page display -->
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <div class="page-area" on:click={() => goTo(page + 1)}>
-      <!-- Blur placeholder shown while real image loads -->
-      {#if doc.blurhash}
-        <img
-          class="page-blur"
-          class:hidden={imgLoaded}
-          src={doc.blurhash}
-          alt=""
-          aria-hidden="true"
+    <div
+      class="page-area"
+      class:grab={!_drag && zoom > 1.0}
+      class:grabbing={_drag && zoom > 1.0}
+      on:wheel|nonpassive={onWheel}
+      on:mousedown={onMouseDown}
+      on:mousemove={onMouseMove}
+      on:mouseup={onMouseUp}
+      on:mouseleave={onMouseUp}
+      on:click={onAreaClick}
+    >
+      <div
+        class="zoom-wrap"
+        style="transform: scale({zoom}) translate({panX}px, {panY}px)"
+      >
+        {#if doubleMode}
+          <!-- Double-page spread: left = page, right = page+1 -->
+          <div class="spread">
+            <img
+              class="spread-img"
+              src={pageUrl(page)}
+              alt="Page {page}"
+              draggable="false"
+            />
+            {#if page + 1 <= doc.page_count}
+              <img
+                class="spread-img"
+                src={pageUrl(page + 1)}
+                alt="Page {page + 1}"
+                draggable="false"
+              />
+            {:else}
+              <!-- odd total: show blank right half for last page -->
+              <div class="spread-blank"></div>
+            {/if}
+          </div>
+        {:else}
+          <!-- Single page with blur-up placeholder -->
+          {#if doc.blurhash}
+            <img
+              class="page-blur"
+              class:hidden={imgLoaded}
+              src={doc.blurhash}
+              alt=""
+              aria-hidden="true"
+              draggable="false"
+            />
+          {/if}
+          <img
+            class="page-img"
+            class:visible={imgLoaded}
+            src={pageUrl(page)}
+            alt="Page {page} of {doc.title}"
+            draggable="false"
+            on:load={() => (imgLoaded = true)}
+          />
+        {/if}
+      </div>
+
+      <!-- Search overlay (absolute within page-area) -->
+      {#if showSearch}
+        <SearchPanel
+          {doc}
+          on:go={(e) => { goTo(e.detail); showSearch = false; }}
+          on:close={() => (showSearch = false)}
         />
       {/if}
-      <img
-        class="page-img"
-        class:visible={imgLoaded}
-        src={pageUrl}
-        alt="Page {page} of {doc.title}"
-        on:load={() => (imgLoaded = true)}
-      />
     </div>
 
-    <!-- Thumb strip -->
-    {#if showStrip}
+    <!-- Right sidebar: thumbs or TOC+bookmarks -->
+    {#if panel === 'thumbs'}
       <ThumbStrip {doc} currentPage={page} on:go={(e) => goTo(e.detail)} />
+    {:else if panel === 'toc'}
+      <TocPanel
+        {outline}
+        {bookmarks}
+        currentPage={page}
+        on:go={(e) => goTo(e.detail)}
+        on:close={() => (panel = null)}
+        on:delete-bookmark={(e) => deleteBookmark(e.detail)}
+      />
     {/if}
 
   </div>
@@ -220,7 +418,7 @@
   .nav button:hover:not(:disabled) { border-color: #555; color: #fff; }
   .nav button:disabled { opacity: .28; cursor: default; }
 
-  .page-input-wrap {
+  .page-btn {
     min-width: 76px;
     text-align: center;
     font-size: .78rem;
@@ -232,9 +430,11 @@
 
   .toolbar-right {
     display: flex;
-    gap: 4px;
+    align-items: center;
+    gap: 3px;
     margin-left: 4px;
   }
+
   .icon-btn {
     background: none;
     border: 1px solid #2e2e2e;
@@ -243,9 +443,22 @@
     cursor: pointer;
     padding: 3px 7px;
     font-size: .85rem;
-    transition: color 80ms, border-color 80ms;
+    line-height: 1.3;
+    transition: color 80ms, border-color 80ms, background 80ms;
   }
-  .icon-btn:hover { color: #ccc; border-color: #555; }
+  .icon-btn:hover          { color: #ccc; border-color: #555; }
+  .icon-btn.active         { color: #93c5fd; border-color: #3b82f6; background: rgba(59,130,246,.12); }
+  .icon-btn.active:hover   { background: rgba(59,130,246,.2); }
+
+  /* Zoom percentage badge in toolbar */
+  .zoom-chip {
+    font-size: .72rem;
+    color: #fbbf24;
+    border-color: #92400e;
+    min-width: 44px;
+    text-align: center;
+  }
+  .zoom-chip:hover { border-color: #f59e0b; color: #fde68a; }
 
   /* ── Body ── */
   .body {
@@ -254,6 +467,7 @@
     overflow: hidden;
   }
 
+  /* ── Page area ── */
   .page-area {
     flex: 1;
     display: flex;
@@ -264,7 +478,21 @@
     position: relative;
     background: #0d0d0d;
   }
+  .page-area.grab     { cursor: grab; }
+  .page-area.grabbing { cursor: grabbing; }
 
+  /* Zoom+pan wrapper — GPU layer */
+  .zoom-wrap {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-origin: center center;
+    will-change: transform;
+  }
+
+  /* ── Single-page images ── */
   .page-blur {
     position: absolute;
     max-height: 96%;
@@ -274,6 +502,7 @@
     transform: scale(1.05);
     opacity: 0.4;
     transition: opacity 80ms;
+    pointer-events: none;
   }
   .page-blur.hidden { opacity: 0; }
 
@@ -283,7 +512,30 @@
     max-width: 96%;
     object-fit: contain;
     opacity: 0;
-    /* No transition — instantaneous swap IS the feature */
+    user-select: none;
   }
   .page-img.visible { opacity: 1; }
+
+  /* ── Double-page spread ── */
+  .spread {
+    display: flex;
+    align-items: flex-start;
+    gap: 4px;
+  }
+
+  .spread-img {
+    /* vw/vh-based so sizing is reliable regardless of sidebar state */
+    max-height: calc(100vh - 50px);
+    max-width: 45vw;
+    object-fit: contain;
+    display: block;
+    flex: 1 1 auto;
+    user-select: none;
+  }
+
+  .spread-blank {
+    flex: 1 1 auto;
+    max-width: 45vw;
+    background: transparent;
+  }
 </style>
