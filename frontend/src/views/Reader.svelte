@@ -197,10 +197,16 @@
 
   function onMouseUp() { _md = null; }
 
-  function onAreaClick() {
+  function onAreaClick(e) {
     if (_drag) { _drag = false; return; }  // was a drag, not a tap
     if (zoom > 1.0) return;                // let user pan, not flip page
-    goTo(page + step);
+    const rect = e.currentTarget.getBoundingClientRect();
+    const relY = e.clientY - rect.top;
+    if (relY < rect.height / 2) {
+      goTo(page - step);   // top half → previous page
+    } else {
+      goTo(page + step);   // bottom half → next page
+    }
   }
 </script>
 
@@ -490,6 +496,14 @@
     justify-content: center;
     transform-origin: center center;
     will-change: transform;
+    pointer-events: none;  /* let right-click reach the <img> directly */
+  }
+
+  /* Re-enable pointer events on images so right-click → Save image works;
+     left-click still bubbles up to .page-area for navigation/pan. */
+  .page-img,
+  .spread-img {
+    pointer-events: auto;
   }
 
   /* ── Single-page images ── */
