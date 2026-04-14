@@ -410,18 +410,23 @@
         {:else}
           <div class="img-grid">
             {#each pageImages as img}
-              <a
-                class="img-thumb"
-                href="/api/docs/{docId}/page/{img.pageNum}/images/{img.idx}"
-                download="image_p{img.pageNum}_{img.idx}.{img.ext}"
-                title="{img.width}×{img.height} {img.ext.toUpperCase()} — click to download"
-              >
+              <div class="img-thumb">
                 <img
                   src="/api/docs/{docId}/page/{img.pageNum}/images/{img.idx}"
                   alt="{img.width}×{img.height}"
                 />
                 <span class="img-dims">p.{img.pageNum} · {img.width}×{img.height}</span>
-              </a>
+                <div class="img-actions">
+                  <a
+                    href="/api/docs/{docId}/page/{img.pageNum}/images/{img.idx}?fmt=jpeg"
+                    download="image_p{img.pageNum}_{img.idx}.jpg"
+                  >JPG</a>
+                  <a
+                    href="/api/docs/{docId}/page/{img.pageNum}/images/{img.idx}?fmt=png"
+                    download="image_p{img.pageNum}_{img.idx}.png"
+                  >PNG</a>
+                </div>
+              </div>
             {/each}
           </div>
         {/if}
@@ -687,10 +692,7 @@
     border: 1px solid #2a2a2a;
     border-radius: 6px;
     padding: 6px;
-    text-decoration: none;
-    transition: border-color 80ms, background 80ms;
   }
-  .img-thumb:hover { border-color: #3b82f6; background: #1a2236; }
   .img-thumb img {
     max-width: 100%;
     max-height: 100px;
@@ -703,4 +705,20 @@
     color: #555;
     text-align: center;
   }
+  .img-actions {
+    display: flex;
+    gap: 4px;
+    margin-top: 2px;
+  }
+  .img-actions a {
+    font-size: .65rem;
+    padding: 2px 7px;
+    border-radius: 3px;
+    background: #222;
+    border: 1px solid #333;
+    color: #888;
+    text-decoration: none;
+    transition: border-color 80ms, color 80ms, background 80ms;
+  }
+  .img-actions a:hover { border-color: #3b82f6; color: #93c5fd; background: #1a2236; }
 </style>

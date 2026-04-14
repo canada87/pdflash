@@ -1,9 +1,11 @@
 from __future__ import annotations
 import os
+from io import BytesIO
 
 import fitz  # PyMuPDF
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
+from PIL import Image as PilImage
 
 from app.db import get_doc_by_id
 from app.state import state
@@ -57,8 +59,10 @@ async def list_page_images(doc_id: int, page_num: int):
 
 
 @router.get("/docs/{doc_id:int}/page/{page_num:int}/images/{idx:int}")
-async def get_page_image(doc_id: int, page_num: int, idx: int):
-    """Serve the raw bytes of embedded image `idx` on the given page."""
+async def get_page_image(doc_id: int, page_num: int, idx: int, fmt: str = None):
+    """Serve embedded image `idx` on the given page.
+    Optional ?fmt=jpeg or ?fmt=png converts the image before serving.
+    """
     doc_row, pdf = _get_pdf(doc_id)
     try:
         if not (1 <= page_num <= doc_row["page_count"]):
@@ -70,5 +74,21 @@ async def get_page_image(doc_id: int, page_num: int, idx: int):
     finally:
         pdf.close()
 
-    mime = _MIME.get(ex["ext"].lower(), "application/octet-stream")
-    return Response(content=ex["image"], media_type=mime)
+    data, ext = ex["image"], ex["ext"]
+
+    if fmt == "jpeg":
+        img = PilImage.open(BytesIO(data))
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+        buf = BytesIO()
+        img.save(buf, "JPEG", quality=92)
+        return Response(content=buf.getvalue(), media_type="image/jpeg")
+
+    if fmt == "png":
+        img = PilImage.open(BytesIO(data))
+        buf = BytesIO()
+        img.save(buf, "PNG")
+        return Response(content=buf.getvalue(), media_type="image/png")
+
+    mime = _MIME.get(ext.lower(), "application/octet-stream")
+    return Response(content=data, media_type=mime)
