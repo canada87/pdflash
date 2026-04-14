@@ -64,6 +64,13 @@ export const deleteBookmark = (id) =>
 
 // ── Tags ──────────────────────────────────────────────────────────────────────
 
+// ── Page images ───────────────────────────────────────────────────────────────
+
+export const getPageImages = (docId, pageNum) =>
+  _json(`${BASE}/docs/${docId}/page/${pageNum}/images`);
+
+// ── Tags ──────────────────────────────────────────────────────────────────────
+
 export const getTags = () => _json(`${BASE}/tags`);
 
 export const createTag = (name) =>

@@ -3,7 +3,7 @@
   import ThumbStrip from '../components/ThumbStrip.svelte';
   import TocPanel   from '../components/TocPanel.svelte';
   import SearchPanel from '../components/SearchPanel.svelte';
-  import { getDoc, updateProgress, getBookmarks, createBookmark, deleteBookmark as apiDeleteBm } from '../lib/api.js';
+  import { getDoc, updateProgress, getBookmarks, createBookmark, deleteBookmark as apiDeleteBm, getPageImages } from '../lib/api.js';
 
   export let docId;
   export let initialPage = 1;
@@ -30,6 +30,11 @@
 
   // ── Bookmarks ─────────────────────────────────────────────────────────────
   let bookmarks = [];
+
+  // ── Embedded images modal ─────────────────────────────────────────────────
+  let showImages    = false;
+  let pageImages    = [];
+  let imagesLoading = false;
 
   // ── Derived ───────────────────────────────────────────────────────────────
   $: step         = doubleMode ? 2 : 1;
@@ -73,6 +78,7 @@
     imgLoaded = false;
     panX      = 0;
     panY      = 0;
+    showImages = false;
     location.hash = `#/r/${docId}/${page}`;
     scheduleProgress();
     preload();
@@ -116,6 +122,7 @@
       case '0':  resetZoom(); break;
       case 'Escape':
         if      (document.fullscreenElement) document.exitFullscreen();
+        else if (showImages)                 showImages = false;
         else if (showSearch)                 showSearch = false;
         else if (panel && panel !== 'thumbs') panel = null;
         break;
@@ -157,6 +164,19 @@
     } else {
       const bm = await createBookmark(docId, page);
       bookmarks = [...bookmarks, bm];
+    }
+  }
+
+  async function toggleImages() {
+    if (showImages) { showImages = false; return; }
+    showImages    = true;
+    imagesLoading = true;
+    try {
+      pageImages = await getPageImages(docId, page);
+    } catch (e) {
+      pageImages = [];
+    } finally {
+      imagesLoading = false;
     }
   }
 
@@ -213,6 +233,7 @@
 {#if loading}
   <div class="loading">Loading…</div>
 {:else}
+<!-- NOTE: embedded-images modal rendered below the reader block -->
 <div class="reader">
 
   <!-- ── Toolbar ── -->
@@ -262,6 +283,11 @@
         class:active={panel === 'thumbs'}
         on:click={() => togglePanel('thumbs')}
         title="Thumbnails (T)">☰</button>
+      <button
+        class="icon-btn"
+        class:active={showImages}
+        on:click={toggleImages}
+        title="Embedded images">🖼</button>
       <button class="icon-btn" on:click={toggleFullscreen} title="Fullscreen (F)">⛶</button>
     </div>
   </div>
@@ -357,6 +383,46 @@
 
   </div>
 </div>
+{/if}
+
+<!-- ── Embedded images modal ── -->
+{#if showImages}
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div class="backdrop" on:click={toggleImages}>
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <div class="img-modal" on:click|stopPropagation>
+      <div class="modal-hd">
+        <span>Images — page {page}</span>
+        <button on:click={toggleImages}>✕</button>
+      </div>
+      <div class="modal-bd">
+        {#if imagesLoading}
+          <p class="hint">Loading…</p>
+        {:else if pageImages.length === 0}
+          <p class="hint">No embedded images on this page.</p>
+        {:else}
+          <div class="img-grid">
+            {#each pageImages as img}
+              <a
+                class="img-thumb"
+                href="/api/docs/{docId}/page/{page}/images/{img.idx}"
+                download="image_p{page}_{img.idx}.{img.ext}"
+                title="{img.width}×{img.height} {img.ext.toUpperCase()} — click to download"
+              >
+                <img
+                  src="/api/docs/{docId}/page/{page}/images/{img.idx}"
+                  alt="{img.width}×{img.height}"
+                />
+                <span class="img-dims">{img.width}×{img.height}</span>
+              </a>
+            {/each}
+          </div>
+        {/if}
+      </div>
+    </div>
+  </div>
 {/if}
 
 <style>
@@ -551,5 +617,85 @@
     flex: 1 1 auto;
     max-width: 45vw;
     background: transparent;
+  }
+
+  /* ── Embedded images modal ── */
+  .backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 50;
+  }
+  .img-modal {
+    background: #1c1c1c;
+    border: 1px solid #2e2e2e;
+    border-radius: 10px;
+    width: 500px;
+    max-width: 90vw;
+    max-height: 70vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 48px rgba(0,0,0,.7);
+  }
+  .modal-hd {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 14px 10px;
+    border-bottom: 1px solid #262626;
+    font-size: .82rem;
+    color: #aaa;
+    flex-shrink: 0;
+  }
+  .modal-hd button {
+    background: none;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    font-size: .8rem;
+    padding: 2px 6px;
+    transition: color 80ms;
+  }
+  .modal-hd button:hover { color: #ccc; }
+  .modal-bd {
+    overflow-y: auto;
+    padding: 12px;
+    flex: 1;
+    scrollbar-width: thin;
+    scrollbar-color: #333 transparent;
+  }
+  .hint { color: #555; font-size: .85rem; margin: 4px; }
+  .img-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 8px;
+  }
+  .img-thumb {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    background: #151515;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 6px;
+    text-decoration: none;
+    transition: border-color 80ms, background 80ms;
+  }
+  .img-thumb:hover { border-color: #3b82f6; background: #1a2236; }
+  .img-thumb img {
+    max-width: 100%;
+    max-height: 100px;
+    object-fit: contain;
+    border-radius: 3px;
+    pointer-events: none;
+  }
+  .img-dims {
+    font-size: .6rem;
+    color: #555;
+    text-align: center;
   }
 </style>

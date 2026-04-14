@@ -20,7 +20,7 @@ from app.ingestion.queue_worker import IngestionQueue
 from app.ingestion.watcher import start_watcher
 from app.state import state
 
-from app.api import bookmarks, docs, events, health, progress, search, tags
+from app.api import bookmarks, docs, events, health, images, progress, search, tags
 
 
 @asynccontextmanager
@@ -103,6 +103,7 @@ app.include_router(progress.router,  prefix="/api")
 app.include_router(search.router,    prefix="/api")
 app.include_router(bookmarks.router, prefix="/api")
 app.include_router(tags.router,      prefix="/api")
+app.include_router(images.router,    prefix="/api")
 app.include_router(events.router,    prefix="/api")
 
 # ── Serve built frontend (SPA) ────────────────────────────────────────────────
