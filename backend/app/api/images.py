@@ -25,9 +25,10 @@ def _get_pdf(doc_id: int):
     doc_row = get_doc_by_id(state.conn, doc_id)
     if not doc_row:
         raise HTTPException(404, "Document not found")
-    if not os.path.isfile(doc_row["path"]):
+    pdf_path = os.path.join(state.config.pdf_dir, doc_row["path"])
+    if not os.path.isfile(pdf_path):
         raise HTTPException(404, "PDF file not found on disk")
-    return doc_row, fitz.open(doc_row["path"])
+    return doc_row, fitz.open(pdf_path)
 
 
 @router.get("/docs/{doc_id:int}/page/{page_num:int}/images")

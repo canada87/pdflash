@@ -172,7 +172,12 @@
     showImages    = true;
     imagesLoading = true;
     try {
-      pageImages = await getPageImages(docId, page);
+      const pages = [page];
+      if (doubleMode && doc && page + 1 <= doc.page_count) pages.push(page + 1);
+      const results = await Promise.all(pages.map(p => getPageImages(docId, p)));
+      pageImages = results.flatMap((imgs, i) =>
+        imgs.map(img => ({ ...img, pageNum: pages[i] }))
+      );
     } catch (e) {
       pageImages = [];
     } finally {
@@ -394,7 +399,7 @@
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div class="img-modal" on:click|stopPropagation>
       <div class="modal-hd">
-        <span>Images — page {page}</span>
+        <span>Images — page {page}{doubleMode && doc && page + 1 <= doc.page_count ? `–${page + 1}` : ''}</span>
         <button on:click={toggleImages}>✕</button>
       </div>
       <div class="modal-bd">
@@ -407,15 +412,15 @@
             {#each pageImages as img}
               <a
                 class="img-thumb"
-                href="/api/docs/{docId}/page/{page}/images/{img.idx}"
-                download="image_p{page}_{img.idx}.{img.ext}"
+                href="/api/docs/{docId}/page/{img.pageNum}/images/{img.idx}"
+                download="image_p{img.pageNum}_{img.idx}.{img.ext}"
                 title="{img.width}×{img.height} {img.ext.toUpperCase()} — click to download"
               >
                 <img
-                  src="/api/docs/{docId}/page/{page}/images/{img.idx}"
+                  src="/api/docs/{docId}/page/{img.pageNum}/images/{img.idx}"
                   alt="{img.width}×{img.height}"
                 />
-                <span class="img-dims">{img.width}×{img.height}</span>
+                <span class="img-dims">p.{img.pageNum} · {img.width}×{img.height}</span>
               </a>
             {/each}
           </div>
