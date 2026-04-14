@@ -78,11 +78,14 @@ async def delete_doc(doc_id: int):
 
     cache_dir = state.config.pages_dir(doc["hash"])
     cover_path = os.path.join(state.config.covers_dir, f"{doc['hash']}.webp")
+    pdf_path = os.path.join(state.config.pdf_dir, doc["path"])
 
     if os.path.exists(cache_dir):
         shutil.rmtree(cache_dir, ignore_errors=True)
     if os.path.exists(cover_path):
         os.remove(cover_path)
+    if os.path.isfile(pdf_path):
+        os.remove(pdf_path)
 
     delete_doc_from_db(state.conn, doc_id)
     return {"status": "deleted"}
