@@ -2,7 +2,7 @@
   import { onMount, onDestroy } from 'svelte';
   import DocCard from '../components/DocCard.svelte';
   import { getDocs, getContinueReading, uploadDoc,
-           getTags, createTag, deleteTag, addDocTag, removeDocTag } from '../lib/api.js';
+           getTags, createTag, deleteTag, addDocTag, removeDocTag, deleteDoc } from '../lib/api.js';
 
   let docs          = [];
   let continueReading = [];
@@ -132,6 +132,12 @@
     if (e.key === 'Escape') closeTagModal();
   }
 
+  async function handleDelete(doc) {
+    if (!confirm(`Delete "${doc.title}"?\nThis removes the document and all its cached data.`)) return;
+    await deleteDoc(doc.id);
+    reload();
+  }
+
   async function removeTagGlobal(tag) {
     if (!confirm(`Delete tag "${tag.name}" from all documents?`)) return;
     await deleteTag(tag.id);
@@ -186,7 +192,7 @@
       <div class="shelf">
         {#each continueReading as doc}
           <div class="shelf-item">
-            <DocCard {doc} {allTags} on:open={() => openDoc(doc)} on:edit-tags={(e) => openTagModal(e.detail)} />
+            <DocCard {doc} {allTags} on:open={() => openDoc(doc)} on:edit-tags={(e) => openTagModal(e.detail)} on:delete={(e) => handleDelete(e.detail)} />
           </div>
         {/each}
       </div>
@@ -214,6 +220,7 @@
             on:open={() => openDoc(doc)}
             on:filter-tag={(e) => setTag(e.detail)}
             on:edit-tags={(e) => openTagModal(e.detail)}
+            on:delete={(e) => handleDelete(e.detail)}
           />
         {/each}
       </div>

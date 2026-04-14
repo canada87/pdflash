@@ -35,6 +35,13 @@
       </div>
     {/if}
 
+    <!-- Delete button -->
+    <button
+      class="btn-delete"
+      on:click|stopPropagation={() => dispatch('delete', doc)}
+      title="Delete document"
+    >✕</button>
+
     <!-- Tag chips + edit button -->
     <div class="tag-row">
       {#each (doc.tags ?? []) as tag}
@@ -158,6 +165,28 @@
     transition: background 80ms, color 80ms;
   }
   .tag-chip:hover { background: #2e3a52; color: #93c5fd; border-color: #3b82f6; }
+
+  .btn-delete {
+    position: absolute;
+    top: 6px;
+    right: 6px;
+    background: rgba(0,0,0,.55);
+    border: none;
+    border-radius: 50%;
+    color: #888;
+    font-size: .65rem;
+    width: 20px;
+    height: 20px;
+    line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 100ms, color 80ms, background 80ms;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .card:hover .btn-delete { opacity: 1; }
+  .btn-delete:hover { color: #fff; background: rgba(220,38,38,.8); }
 
   .tag-edit {
     background: none;
