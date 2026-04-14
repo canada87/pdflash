@@ -182,7 +182,7 @@ _PROGRESS_COLS = """
     COALESCE(p.last_page, 1)  AS last_page,
     p.last_opened,
     COALESCE(p.pages_seen, 0) AS pages_seen,
-    CAST(ROUND(100.0 * COALESCE(p.pages_seen, 0) / d.page_count) AS INTEGER)
+    CAST(ROUND(100.0 * COALESCE(p.last_page, 1) / d.page_count) AS INTEGER)
         AS progress_pct
 """
 
