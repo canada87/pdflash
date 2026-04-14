@@ -141,6 +141,9 @@
     padding: 6px 4px;
     scrollbar-width: thin;
     scrollbar-color: #333 transparent;
+    /* Prevent the browser from adjusting scrollTop when virtual-scroll DOM
+       nodes are added/removed above the viewport (would cause page jumps). */
+    overflow-anchor: none;
   }
 
   /* Loading skeleton */

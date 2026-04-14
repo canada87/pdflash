@@ -1,0 +1,46 @@
+# pdflash Caddyfile — optional, for production deployments with HTTPS.
+#
+# Usage (alongside docker-compose.yml):
+#   1. Add a caddy service to docker-compose or run Caddy separately.
+#   2. Replace ":80" with your domain (e.g. "pdflash.example.com") for auto-HTTPS.
+#   3. Mount /data (shared with the app container) and /static (built frontend).
+#
+# With Caddy in front, the app container can drop its exposed port (use expose: 8000).
+
+:80 {
+    # ── Pre-rendered page images — served directly, immutable forever ──────────
+    # Caddy reads from the shared data volume; FastAPI never touches these in prod.
+    handle /cache/* {
+        root * /data
+        file_server
+        header Cache-Control "public, max-age=31536000, immutable"
+        header X-Content-Type-Options nosniff
+    }
+
+    # ── Hashed JS/CSS/image assets — also immutable ───────────────────────────
+    handle /assets/* {
+        root * /static
+        file_server
+        header Cache-Control "public, max-age=31536000, immutable"
+    }
+
+    # ── Service Worker — must re-validate ────────────────────────────────────
+    handle /sw.js {
+        root * /static
+        file_server
+        header Cache-Control "no-cache"
+    }
+
+    # ── API — proxy to uvicorn ────────────────────────────────────────────────
+    handle /api/* {
+        reverse_proxy app:8000
+    }
+
+    # ── SPA fallback — serve index.html for all other paths ──────────────────
+    handle {
+        root * /static
+        try_files {path} /index.html
+        file_server
+        header Cache-Control "no-cache"
+    }
+}

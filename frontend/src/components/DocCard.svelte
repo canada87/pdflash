@@ -1,6 +1,7 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   export let doc;
+  export let allTags = [];   // [{id, name}] — passed from Gallery for tag editing
 
   const dispatch = createEventDispatcher();
   let coverLoaded = false;
@@ -22,6 +23,7 @@
       <div class="status-badge">{doc.status}</div>
     {/if}
   </div>
+
   <div class="meta">
     <div class="title">{doc.title}</div>
     {#if doc.author}
@@ -30,6 +32,27 @@
     {#if doc.progress_pct > 0}
       <div class="bar-wrap">
         <div class="bar-fill" style="width:{doc.progress_pct}%"></div>
+      </div>
+    {/if}
+
+    <!-- Tag chips + edit button -->
+    {#if (doc.tags?.length > 0) || allTags.length > 0}
+      <div class="tag-row">
+        {#each (doc.tags ?? []) as tag}
+          <!-- svelte-ignore a11y-click-events-have-key-events -->
+          <span
+            class="tag-chip"
+            on:click|stopPropagation={() => dispatch('filter-tag', tag)}
+            title="Filter by "{tag}""
+          >{tag}</span>
+        {/each}
+        {#if allTags.length > 0}
+          <button
+            class="tag-edit"
+            on:click|stopPropagation={() => dispatch('edit-tags', doc)}
+            title="Edit tags"
+          >⊕</button>
+        {/if}
       </div>
     {/if}
   </div>
@@ -118,4 +141,38 @@
     border-radius: 2px;
     transition: width 300ms;
   }
+
+  /* ── Tags ── */
+  .tag-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    margin-top: 6px;
+    align-items: center;
+  }
+  .tag-chip {
+    font-size: .62rem;
+    background: #252525;
+    border: 1px solid #333;
+    border-radius: 3px;
+    padding: 1px 5px;
+    color: #888;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 80ms, color 80ms;
+  }
+  .tag-chip:hover { background: #2e3a52; color: #93c5fd; border-color: #3b82f6; }
+
+  .tag-edit {
+    background: none;
+    border: 1px dashed #333;
+    border-radius: 3px;
+    color: #555;
+    font-size: .65rem;
+    padding: 1px 4px;
+    cursor: pointer;
+    line-height: 1.2;
+    transition: border-color 80ms, color 80ms;
+  }
+  .tag-edit:hover { border-color: #3b82f6; color: #93c5fd; }
 </style>

@@ -72,3 +72,12 @@ export const createTag = (name) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
+
+export const deleteTag = (id) =>
+  fetch(`${BASE}/tags/${id}`, { method: 'DELETE' });
+
+export const addDocTag = (docId, tagId) =>
+  fetch(`${BASE}/docs/${docId}/tags/${tagId}`, { method: 'POST' });
+
+export const removeDocTag = (docId, tagId) =>
+  fetch(`${BASE}/docs/${docId}/tags/${tagId}`, { method: 'DELETE' });

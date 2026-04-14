@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.config import Config
 from app.db import init_db
@@ -103,3 +104,10 @@ app.include_router(search.router,    prefix="/api")
 app.include_router(bookmarks.router, prefix="/api")
 app.include_router(tags.router,      prefix="/api")
 app.include_router(events.router,    prefix="/api")
+
+# ── Serve built frontend (SPA) ────────────────────────────────────────────────
+# Active only when the frontend has been built (docker / production).
+# In dev, Vite handles this; the route is harmless if static/ doesn't exist.
+_static = os.path.join(os.path.dirname(__file__), "..", "static")
+if os.path.isdir(_static):
+    app.mount("/", StaticFiles(directory=_static, html=True), name="spa")

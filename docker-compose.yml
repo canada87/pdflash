@@ -1,0 +1,24 @@
+services:
+  app:
+    build: .
+    ports:
+      - "${PORT:-8000}:8000"
+    volumes:
+      # Persistent data: SQLite DB, pre-rendered cache, uploads
+      - pdflash_data:/data
+      # Drop PDFs here; watchdog picks them up automatically
+      - ${PDF_DIR:-./pdfs}:/data/pdfs
+    environment:
+      PDFLASH_PDF_DIR:           /data/pdfs
+      PDFLASH_DATA_DIR:          /data
+      PDFLASH_WORKERS:           ${PDFLASH_WORKERS:-4}
+      PDFLASH_TIER_THUMB_PX:     ${PDFLASH_TIER_THUMB_PX:-200}
+      PDFLASH_TIER_SCREEN_PX:    ${PDFLASH_TIER_SCREEN_PX:-1400}
+      PDFLASH_TIER_HI_PX:        ${PDFLASH_TIER_HI_PX:-2800}
+      PDFLASH_WEBP_QUALITY_THUMB:  ${PDFLASH_WEBP_QUALITY_THUMB:-70}
+      PDFLASH_WEBP_QUALITY_SCREEN: ${PDFLASH_WEBP_QUALITY_SCREEN:-80}
+      PDFLASH_WEBP_QUALITY_HI:     ${PDFLASH_WEBP_QUALITY_HI:-82}
+    restart: unless-stopped
+
+volumes:
+  pdflash_data:
