@@ -43,7 +43,7 @@
           <span
             class="tag-chip"
             on:click|stopPropagation={() => dispatch('filter-tag', tag)}
-            title="Filter by "{tag}""
+            title="Filter by {tag}"
           >{tag}</span>
         {/each}
         {#if allTags.length > 0}
