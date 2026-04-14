@@ -2,7 +2,7 @@
 FROM node:20-slim AS frontend
 WORKDIR /build
 COPY frontend/package*.json ./
-RUN npm ci --omit=dev
+RUN npm install
 COPY frontend/ ./
 # vite.config.js has outDir: '../backend/static'
 # With WORKDIR=/build that resolves to /backend/static (Vite creates it)
