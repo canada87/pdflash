@@ -36,25 +36,21 @@
     {/if}
 
     <!-- Tag chips + edit button -->
-    {#if (doc.tags?.length > 0) || allTags.length > 0}
-      <div class="tag-row">
-        {#each (doc.tags ?? []) as tag}
-          <!-- svelte-ignore a11y-click-events-have-key-events -->
-          <span
-            class="tag-chip"
-            on:click|stopPropagation={() => dispatch('filter-tag', tag)}
-            title="Filter by {tag}"
-          >{tag}</span>
-        {/each}
-        {#if allTags.length > 0}
-          <button
-            class="tag-edit"
-            on:click|stopPropagation={() => dispatch('edit-tags', doc)}
-            title="Edit tags"
-          >⊕</button>
-        {/if}
-      </div>
-    {/if}
+    <div class="tag-row">
+      {#each (doc.tags ?? []) as tag}
+        <!-- svelte-ignore a11y-click-events-have-key-events -->
+        <span
+          class="tag-chip"
+          on:click|stopPropagation={() => dispatch('filter-tag', tag)}
+          title="Filter by {tag}"
+        >{tag}</span>
+      {/each}
+      <button
+        class="tag-edit"
+        on:click|stopPropagation={() => dispatch('edit-tags', doc)}
+        title="Edit tags"
+      >⊕</button>
+    </div>
   </div>
 </button>
 

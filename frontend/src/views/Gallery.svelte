@@ -186,7 +186,7 @@
       <div class="shelf">
         {#each continueReading as doc}
           <div class="shelf-item">
-            <DocCard {doc} on:open={() => openDoc(doc)} />
+            <DocCard {doc} {allTags} on:open={() => openDoc(doc)} on:edit-tags={(e) => openTagModal(e.detail)} />
           </div>
         {/each}
       </div>
