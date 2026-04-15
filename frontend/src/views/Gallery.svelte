@@ -278,19 +278,22 @@
           <p class="hint" style="padding:0">No tags yet. Create one below.</p>
         {:else}
           {#each allTags as tag}
-            <label class="tag-row">
-              <input
-                type="checkbox"
-                checked={(editingDoc.tags ?? []).includes(tag.name)}
-                on:change={(e) => toggleDocTag(tag, e.target.checked)}
-              />
-              <span class="tag-name">{tag.name}</span>
+            <div class="tag-row">
+              <label class="tag-check">
+                <input
+                  type="checkbox"
+                  checked={(editingDoc.tags ?? []).includes(tag.name)}
+                  on:change={(e) => toggleDocTag(tag, e.target.checked)}
+                />
+                <span class="tag-name">{tag.name}</span>
+              </label>
               <button
+                type="button"
                 class="del-btn"
-                on:click|stopPropagation={() => removeTagGlobal(tag)}
+                on:click={() => removeTagGlobal(tag)}
                 title="Delete tag globally"
               >✕</button>
-            </label>
+            </div>
           {/each}
         {/if}
       </div>
@@ -532,20 +535,26 @@
   .tag-row {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 10px;
+    gap: 4px;
     border-radius: 5px;
-    cursor: pointer;
     transition: background 60ms;
   }
   .tag-row:hover { background: #252525; }
 
-  .tag-row input[type="checkbox"] {
+  .tag-check {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    padding: 5px 10px;
+    cursor: pointer;
+  }
+  .tag-check input[type="checkbox"] {
     accent-color: #3b82f6;
     cursor: pointer;
     flex-shrink: 0;
   }
-  .tag-name { flex: 1; font-size: .82rem; color: #ccc; }
+  .tag-name { font-size: .82rem; color: #ccc; }
 
   .del-btn {
     background: none;
