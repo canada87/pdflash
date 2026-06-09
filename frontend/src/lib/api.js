@@ -69,6 +69,9 @@ export const deleteBookmark = (id) =>
 export const getPageImages = (docId, pageNum) =>
   _json(`${BASE}/docs/${docId}/page/${pageNum}/images`);
 
+export const getPageText = (docId, pageNum) =>
+  _json(`${BASE}/docs/${docId}/page/${pageNum}/text`);
+
 // ── Tags ──────────────────────────────────────────────────────────────────────
 
 export const getTags = () => _json(`${BASE}/tags`);

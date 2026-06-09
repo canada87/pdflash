@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import os
 import shutil
 from pathlib import Path
@@ -79,6 +80,20 @@ async def reindex_doc(doc_id: int):
         raise HTTPException(404, f"PDF file not found on disk: {doc['path']}")
     await state.queue.enqueue(pdf_path, force=True)
     return {"status": "queued"}
+
+
+@router.get("/docs/{doc_id:int}/page/{page_num:int}/text")
+async def get_page_text(doc_id: int, page_num: int):
+    doc = get_doc_by_id(state.conn, doc_id)
+    if not doc:
+        raise HTTPException(404, "Document not found")
+    text_path = os.path.join(
+        state.config.pages_dir(doc["hash"]), "text", f"{page_num:04d}.json"
+    )
+    if not os.path.isfile(text_path):
+        return []
+    with open(text_path, encoding="utf-8") as f:
+        return json.load(f)
 
 
 @router.delete("/docs/{doc_id:int}")

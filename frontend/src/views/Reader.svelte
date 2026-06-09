@@ -3,7 +3,7 @@
   import ThumbStrip from '../components/ThumbStrip.svelte';
   import TocPanel   from '../components/TocPanel.svelte';
   import SearchPanel from '../components/SearchPanel.svelte';
-  import { getDoc, updateProgress, getBookmarks, createBookmark, deleteBookmark as apiDeleteBm, getPageImages } from '../lib/api.js';
+  import { getDoc, updateProgress, getBookmarks, createBookmark, deleteBookmark as apiDeleteBm, getPageImages, getPageText } from '../lib/api.js';
 
   export let docId;
   export let initialPage = 1;
@@ -36,6 +36,26 @@
   let pageImages    = [];
   let imagesLoading = false;
 
+  // ── Text selection layer ──────────────────────────────────────────────────
+  let textWords      = [];
+  let textWordsRight = [];
+  let pageNW = 0;  // natural width of page image — drives aspect-ratio of wrapper
+  let pageNH = 0;
+  let _textToken = 0;
+
+  async function loadText(p) {
+    const token = ++_textToken;
+    const [words, right] = await Promise.all([
+      getPageText(docId, p).catch(() => []),
+      (doubleMode && doc && p + 1 <= doc.page_count)
+        ? getPageText(docId, p + 1).catch(() => [])
+        : Promise.resolve([]),
+    ]);
+    if (token !== _textToken) return;
+    textWords      = words;
+    textWordsRight = right;
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────
   $: step         = doubleMode ? 2 : 1;
   $: atFirst      = page <= 1;
@@ -57,6 +77,7 @@
     page = Math.max(1, Math.min(initialPage, doc.page_count));
     loading = false;
     preload();
+    loadText(page);
     window.addEventListener('keydown', handleKey);
   });
 
@@ -70,18 +91,20 @@
   function goTo(n) {
     if (!doc) return;
     let p = Math.max(1, Math.min(n, doc.page_count));
-    // In double mode always land on an even-numbered page (start of spread),
-    // except if we're at page 1 (cover shown alone on the left).
     if (doubleMode && p > 1 && p % 2 !== 0) p = Math.max(1, p - 1);
     if (p === page) return;
-    page      = p;
-    imgLoaded = false;
-    panX      = 0;
-    panY      = 0;
-    showImages = false;
-    location.hash = `#/r/${docId}/${page}`;
+    window.getSelection()?.removeAllRanges();
+    page           = p;
+    imgLoaded      = false;
+    textWords      = [];
+    textWordsRight = [];
+    panX           = 0;
+    panY           = 0;
+    showImages     = false;
+    location.hash  = `#/r/${docId}/${page}`;
     scheduleProgress();
     preload();
+    loadText(p);
   }
 
   function preload() {
@@ -137,10 +160,12 @@
 
   function toggleDouble() {
     doubleMode = !doubleMode;
-    // Snap to start of a spread when entering double mode
     if (doubleMode && page > 1 && page % 2 !== 0) page = Math.max(1, page - 1);
-    imgLoaded = false;
+    imgLoaded      = false;
+    textWords      = [];
+    textWordsRight = [];
     preload();
+    loadText(page);
   }
 
   function toggleFullscreen() {
@@ -223,14 +248,15 @@
   function onMouseUp() { _md = null; }
 
   function onAreaClick(e) {
-    if (_drag) { _drag = false; return; }  // was a drag, not a tap
-    if (zoom > 1.0) return;                // let user pan, not flip page
+    if (_drag) { _drag = false; return; }
+    if (zoom > 1.0) return;
+    if (window.getSelection()?.toString().length > 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const relY = e.clientY - rect.top;
     if (relY < rect.height / 2) {
-      goTo(page - step);   // top half → previous page
+      goTo(page - step);
     } else {
-      goTo(page + step);   // bottom half → next page
+      goTo(page + step);
     }
   }
 </script>
@@ -321,44 +347,72 @@
         {#if doubleMode}
           <!-- Double-page spread: left = page, right = page+1 -->
           <div class="spread">
-            <img
-              class="spread-img"
-              src={pageUrl(page)}
-              alt="Page {page}"
-              draggable="false"
-            />
-            {#if page + 1 <= doc.page_count}
+            <div class="spread-wrap" style="aspect-ratio:{pageNW || 595}/{pageNH || 842}">
               <img
                 class="spread-img"
-                src={pageUrl(page + 1)}
-                alt="Page {page + 1}"
+                src={pageUrl(page)}
+                alt="Page {page}"
                 draggable="false"
+                on:load={e => { pageNW = e.target.naturalWidth; pageNH = e.target.naturalHeight; }}
               />
+              {#if textWords.length > 0}
+                <div class="text-layer" class:no-pointer={zoom > 1.0}>
+                  {#each textWords as w}
+                    <span style="left:{w.x*100}%;top:{w.y*100}%;width:{w.w*100}%;height:{w.h*100}%">{w.t}</span>
+                  {/each}
+                </div>
+              {/if}
+            </div>
+            {#if page + 1 <= doc.page_count}
+              <div class="spread-wrap" style="aspect-ratio:{pageNW || 595}/{pageNH || 842}">
+                <img
+                  class="spread-img"
+                  src={pageUrl(page + 1)}
+                  alt="Page {page + 1}"
+                  draggable="false"
+                />
+                {#if textWordsRight.length > 0}
+                  <div class="text-layer" class:no-pointer={zoom > 1.0}>
+                    {#each textWordsRight as w}
+                      <span style="left:{w.x*100}%;top:{w.y*100}%;width:{w.w*100}%;height:{w.h*100}%">{w.t}</span>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
             {:else}
               <!-- odd total: show blank right half for last page -->
               <div class="spread-blank"></div>
             {/if}
           </div>
         {:else}
-          <!-- Single page with blur-up placeholder -->
-          {#if doc.blurhash}
+          <!-- Single page with blur-up placeholder + text layer -->
+          <div class="page-wrap" style="aspect-ratio:{pageNW || 595}/{pageNH || 842}">
+            {#if doc.blurhash}
+              <img
+                class="page-blur"
+                class:hidden={imgLoaded}
+                src={doc.blurhash}
+                alt=""
+                aria-hidden="true"
+                draggable="false"
+              />
+            {/if}
             <img
-              class="page-blur"
-              class:hidden={imgLoaded}
-              src={doc.blurhash}
-              alt=""
-              aria-hidden="true"
+              class="page-img"
+              class:visible={imgLoaded}
+              src={pageUrl(page)}
+              alt="Page {page} of {doc.title}"
               draggable="false"
+              on:load={e => { imgLoaded = true; pageNW = e.target.naturalWidth; pageNH = e.target.naturalHeight; }}
             />
-          {/if}
-          <img
-            class="page-img"
-            class:visible={imgLoaded}
-            src={pageUrl(page)}
-            alt="Page {page} of {doc.title}"
-            draggable="false"
-            on:load={() => (imgLoaded = true)}
-          />
+            {#if textWords.length > 0}
+              <div class="text-layer" class:no-pointer={zoom > 1.0}>
+                {#each textWords as w}
+                  <span style="left:{w.x*100}%;top:{w.y*100}%;width:{w.w*100}%;height:{w.h*100}%">{w.t}</span>
+                {/each}
+              </div>
+            {/if}
+          </div>
         {/if}
       </div>
 
@@ -582,12 +636,19 @@
     pointer-events: auto;
   }
 
-  /* ── Single-page images ── */
-  .page-blur {
-    position: absolute;
+  /* ── Single-page wrapper ── */
+  .page-wrap {
+    position: relative;
     max-height: 96%;
     max-width: 96%;
-    object-fit: contain;
+  }
+
+  .page-blur {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
     filter: blur(20px);
     transform: scale(1.05);
     opacity: 0.4;
@@ -597,12 +658,13 @@
   .page-blur.hidden { opacity: 0; }
 
   .page-img {
-    position: relative;
-    max-height: 96%;
-    max-width: 96%;
-    object-fit: contain;
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
     opacity: 0;
     user-select: none;
+    transition: opacity 80ms;
   }
   .page-img.visible { opacity: 1; }
 
@@ -613,13 +675,18 @@
     gap: 4px;
   }
 
-  .spread-img {
-    /* vw/vh-based so sizing is reliable regardless of sidebar state */
+  .spread-wrap {
+    position: relative;
     max-height: calc(100vh - 50px);
     max-width: 45vw;
-    object-fit: contain;
-    display: block;
     flex: 1 1 auto;
+  }
+
+  .spread-img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
     user-select: none;
   }
 
@@ -628,6 +695,29 @@
     max-width: 45vw;
     background: transparent;
   }
+
+  /* ── Text selection layer ── */
+  .text-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+  }
+  .text-layer span {
+    position: absolute;
+    color: transparent;
+    white-space: pre;
+    user-select: text;
+    cursor: text;
+    overflow: hidden;
+    line-height: 1;
+    pointer-events: auto;
+  }
+  .text-layer span::selection {
+    background: rgba(59, 130, 246, 0.35);
+    color: transparent;
+  }
+  .text-layer.no-pointer,
+  .text-layer.no-pointer span { pointer-events: none; }
 
   /* ── Embedded images modal ── */
   .backdrop {
