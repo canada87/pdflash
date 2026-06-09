@@ -1,12 +1,11 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import DocCard from '../components/DocCard.svelte';
-  import { getDocs, getContinueReading, uploadDoc,
+  import { getDocs, uploadDoc,
            getTags, createTag, deleteTag, addDocTag, removeDocTag, deleteDoc } from '../lib/api.js';
 
-  let docs          = [];
-  let continueReading = [];
-  let allTags       = [];
+  let docs    = [];
+  let allTags = [];
   let loading       = true;
   let uploading     = false;
   let es;
@@ -33,13 +32,10 @@
   async function reload() {
     const params = { sort };
     if (activeTag) params.tag = activeTag;
-    [docs, continueReading, allTags] = await Promise.all([
-      getDocs(params),
-      getContinueReading(),
-      getTags(),
-    ]);
+    const [newDocs, newTags] = await Promise.all([getDocs(params), getTags()]);
+    docs    = newDocs;
+    allTags = newTags;
     loading = false;
-    // If the active tag was deleted, clear it
     if (activeTag && !allTags.some(t => t.name === activeTag)) activeTag = null;
   }
 
@@ -220,19 +216,6 @@
     </section>
   {/if}
 
-  {#if continueReading.length > 0}
-    <section>
-      <h2>Continue reading</h2>
-      <div class="shelf">
-        {#each continueReading as doc}
-          <div class="shelf-item">
-            <DocCard {doc} {allTags} on:open={() => openDoc(doc)} on:edit-tags={(e) => openTagModal(e.detail)} on:delete={(e) => handleDelete(e.detail)} />
-          </div>
-        {/each}
-      </div>
-    </section>
-  {/if}
-
   <section>
     <h2>
       Library
@@ -313,7 +296,7 @@
 
 <style>
   .page {
-    min-height: 100vh;
+    height: 100vh;
     overflow-y: auto;
     padding: 20px 24px 48px;
     max-width: 1600px;
@@ -415,16 +398,6 @@
     text-transform: none;
     letter-spacing: 0;
   }
-
-  .shelf {
-    display: flex;
-    gap: 12px;
-    overflow-x: auto;
-    padding-bottom: 6px;
-    scrollbar-width: thin;
-    scrollbar-color: #333 transparent;
-  }
-  .shelf-item { flex: 0 0 140px; }
 
   .grid {
     display: grid;
