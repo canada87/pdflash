@@ -73,11 +73,18 @@ export const getPageImages = (docId, pageNum) =>
 
 export const getTags = () => _json(`${BASE}/tags`);
 
-export const createTag = (name) =>
+export const createTag = (name, color = '#6b7280', parent_id = null) =>
   _json(`${BASE}/tags`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, color, parent_id }),
+  });
+
+export const updateTag = (id, data) =>
+  _json(`${BASE}/tags/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
   });
 
 export const deleteTag = (id) =>

@@ -1,10 +1,14 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   export let doc;
-  export let allTags = [];   // [{id, name}] — passed from Gallery for tag editing
+  export let allTags = [];   // [{id, name, color, parent_id}]
 
   const dispatch = createEventDispatcher();
   let coverLoaded = false;
+
+  function tagColor(name) {
+    return allTags.find(t => t.name === name)?.color ?? '#6b7280';
+  }
 </script>
 
 <button class="card" on:click={() => dispatch('open', doc)}>
@@ -50,6 +54,7 @@
         <!-- svelte-ignore a11y-click-events-have-key-events -->
         <span
           class="tag-chip"
+          style="--tc:{tagColor(tag)}"
           on:click|stopPropagation={() => dispatch('filter-tag', tag)}
           title="Filter by {tag}"
         >{tag}</span>
@@ -157,16 +162,19 @@
   }
   .tag-chip {
     font-size: .62rem;
-    background: #252525;
-    border: 1px solid #333;
+    background: color-mix(in srgb, var(--tc, #6b7280) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--tc, #6b7280) 35%, transparent);
     border-radius: 3px;
     padding: 1px 5px;
-    color: #888;
+    color: var(--tc, #888);
     cursor: pointer;
     white-space: nowrap;
-    transition: background 80ms, color 80ms;
+    transition: background 80ms, border-color 80ms;
   }
-  .tag-chip:hover { background: #2e3a52; color: #93c5fd; border-color: #3b82f6; }
+  .tag-chip:hover {
+    background: color-mix(in srgb, var(--tc, #3b82f6) 22%, transparent);
+    border-color: var(--tc, #3b82f6);
+  }
 
   .btn-delete {
     position: absolute;

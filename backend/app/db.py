@@ -66,7 +66,18 @@ def init_db(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    _migrate(conn)
     return conn
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Forward-only column additions — safe to run on every startup."""
+    cols = {r[1] for r in conn.execute("PRAGMA table_info(tag)").fetchall()}
+    if "color" not in cols:
+        conn.execute("ALTER TABLE tag ADD COLUMN color TEXT NOT NULL DEFAULT '#6b7280'")
+    if "parent_id" not in cols:
+        conn.execute("ALTER TABLE tag ADD COLUMN parent_id INTEGER REFERENCES tag(id)")
+    conn.commit()
 
 
 def get_doc_by_hash(conn: sqlite3.Connection, doc_hash: str) -> Optional[dict]:
@@ -207,7 +218,8 @@ def get_doc_by_id(conn: sqlite3.Connection, doc_id: int) -> Optional[dict]:
 def get_docs_gallery(
     conn: sqlite3.Connection,
     *,
-    tag: str = None,
+    tags: list[str] = None,
+    tag_mode: str = "or",
     q: str = None,
     sort: str = "recent",
     limit: int = 50,
@@ -216,12 +228,21 @@ def get_docs_gallery(
     where = ["d.status = 'ready'"]
     params: list = []
 
-    if tag:
-        where.append(
-            "d.id IN (SELECT dt.doc_id FROM doc_tag dt"
-            " JOIN tag t ON t.id = dt.tag_id WHERE t.name = ?)"
-        )
-        params.append(tag)
+    if tags:
+        if tag_mode == "and":
+            for t in tags:
+                where.append(
+                    "d.id IN (SELECT dt.doc_id FROM doc_tag dt"
+                    " JOIN tag t2 ON t2.id = dt.tag_id WHERE t2.name = ?)"
+                )
+                params.append(t)
+        else:  # OR
+            ph = ",".join("?" * len(tags))
+            where.append(
+                f"d.id IN (SELECT dt.doc_id FROM doc_tag dt"
+                f" JOIN tag t2 ON t2.id = dt.tag_id WHERE t2.name IN ({ph}))"
+            )
+            params.extend(tags)
 
     if q:
         where.append("(d.title LIKE ? OR d.author LIKE ?)")
@@ -334,17 +355,53 @@ def get_all_tags(conn: sqlite3.Connection) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def create_tag(conn: sqlite3.Connection, name: str) -> dict:
+_UNSET = object()
+
+
+def create_tag(
+    conn: sqlite3.Connection,
+    name: str,
+    color: str = "#6b7280",
+    parent_id: Optional[int] = None,
+) -> dict:
     try:
-        cur = conn.execute("INSERT INTO tag (name) VALUES (?)", (name,))
+        cur = conn.execute(
+            "INSERT INTO tag (name, color, parent_id) VALUES (?, ?, ?)",
+            (name, color, parent_id),
+        )
         conn.commit()
-        return {"id": cur.lastrowid, "name": name}
+        row = conn.execute("SELECT * FROM tag WHERE id = ?", (cur.lastrowid,)).fetchone()
+        return dict(row)
     except Exception:
         row = conn.execute("SELECT * FROM tag WHERE name = ?", (name,)).fetchone()
         return dict(row)
 
 
+def update_tag(
+    conn: sqlite3.Connection,
+    tag_id: int,
+    *,
+    name=_UNSET,
+    color=_UNSET,
+    parent_id=_UNSET,
+) -> Optional[dict]:
+    fields, vals = [], []
+    if name is not _UNSET:
+        fields.append("name = ?"); vals.append(name)
+    if color is not _UNSET:
+        fields.append("color = ?"); vals.append(color)
+    if parent_id is not _UNSET:
+        fields.append("parent_id = ?"); vals.append(parent_id)
+    if fields:
+        vals.append(tag_id)
+        conn.execute(f"UPDATE tag SET {', '.join(fields)} WHERE id = ?", vals)
+        conn.commit()
+    row = conn.execute("SELECT * FROM tag WHERE id = ?", (tag_id,)).fetchone()
+    return dict(row) if row else None
+
+
 def delete_tag(conn: sqlite3.Connection, tag_id: int) -> None:
+    conn.execute("UPDATE tag SET parent_id = NULL WHERE parent_id = ?", (tag_id,))
     conn.execute("DELETE FROM tag WHERE id = ?", (tag_id,))
     conn.commit()
 

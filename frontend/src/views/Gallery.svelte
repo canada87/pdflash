@@ -2,20 +2,21 @@
   import { onMount, onDestroy } from 'svelte';
   import DocCard from '../components/DocCard.svelte';
   import { getDocs, uploadDoc,
-           getTags, createTag, deleteTag, addDocTag, removeDocTag, deleteDoc } from '../lib/api.js';
+           getTags, createTag, addDocTag, removeDocTag, deleteDoc } from '../lib/api.js';
 
   let docs    = [];
   let allTags = [];
-  let loading       = true;
-  let uploading     = false;
+  let loading   = true;
+  let uploading = false;
   let es;
 
   // doc_id (number) → {title, pct}
   let processingDocs = {};
 
   // ── Filter + sort state ───────────────────────────────────────────────────
-  let sort      = 'recent';   // 'recent' | 'title' | 'progress'
-  let activeTag = null;       // string tag name, or null = All
+  let sort       = 'recent';  // 'recent' | 'title' | 'progress'
+  let activeTags = new Set(); // Set<string> of active tag names
+  let tagMode    = 'or';      // 'or' | 'and'
 
   const SORTS = [
     { key: 'recent',   label: 'Recent'   },
@@ -23,26 +24,36 @@
     { key: 'progress', label: 'Progress' },
   ];
 
-  // ── Tag management modal ──────────────────────────────────────────────────
-  let editingDoc  = null;    // doc being tag-edited
-  let newTagName  = '';
+  // ── Tag assignment modal ──────────────────────────────────────────────────
+  let editingDoc = null;
+  let newTagName = '';
+
+  // ── Derived: tags grouped by hierarchy ───────────────────────────────────
+  $: tagRoots   = allTags.filter(t => t.parent_id === null);
+  $: tagChildOf = id => allTags.filter(t => t.parent_id === id);
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
   async function reload() {
     const params = { sort };
-    if (activeTag) params.tag = activeTag;
-    const [newDocs, newTags] = await Promise.all([getDocs(params), getTags()]);
+    if (activeTags.size > 0) {
+      params.tags = [...activeTags].join(',');
+      if (activeTags.size > 1) params.tag_mode = tagMode;
+    }
+    const [newDocs, newTagList] = await Promise.all([getDocs(params), getTags()]);
     docs    = newDocs;
-    allTags = newTags;
+    allTags = newTagList;
     loading = false;
-    if (activeTag && !allTags.some(t => t.name === activeTag)) activeTag = null;
+    // prune stale active tags
+    for (const name of activeTags) {
+      if (!allTags.some(t => t.name === name)) activeTags.delete(name);
+    }
+    activeTags = activeTags;
   }
 
   onMount(async () => {
     reload();
 
-    // Recover any in-progress ingestions (e.g. after page refresh)
     try {
       const indexing = await fetch('/api/docs/indexing').then(r => r.json());
       for (const d of indexing) {
@@ -70,15 +81,22 @@
     location.hash = `#/r/${doc.id}/${doc.last_page || 1}`;
   }
 
-  // ── Sort / filter ─────────────────────────────────────────────────────────
+  // ── Sort / tag filter ─────────────────────────────────────────────────────
 
   function setSort(s) {
     sort = s;
     reload();
   }
 
-  function setTag(name) {
-    activeTag = name;
+  function toggleTag(name) {
+    if (activeTags.has(name)) activeTags.delete(name);
+    else activeTags.add(name);
+    activeTags = activeTags;
+    reload();
+  }
+
+  function clearTags() {
+    activeTags = new Set();
     reload();
   }
 
@@ -104,7 +122,7 @@
       .then(() => { uploading = false; });
   }
 
-  // ── Tag management modal ──────────────────────────────────────────────────
+  // ── Tag assignment modal ──────────────────────────────────────────────────
 
   function openTagModal(doc) {
     editingDoc = doc;
@@ -125,7 +143,7 @@
       await removeDocTag(editingDoc.id, tag.id);
       editingDoc = { ...editingDoc, tags: (editingDoc.tags ?? []).filter(n => n !== tag.name) };
     }
-    reload();  // refresh gallery cards
+    reload();
   }
 
   async function addNewTag() {
@@ -134,17 +152,11 @@
     const tag = await createTag(name);
     newTagName = '';
     await reload();
-    // Auto-attach the new tag to the doc being edited
     if (editingDoc) {
       await addDocTag(editingDoc.id, tag.id);
       editingDoc = { ...editingDoc, tags: [...(editingDoc.tags ?? []), tag.name] };
       reload();
     }
-  }
-
-  function onTagKeydown(e) {
-    if (e.key === 'Enter') addNewTag();
-    if (e.key === 'Escape') closeTagModal();
   }
 
   async function handleDelete(doc) {
@@ -153,11 +165,16 @@
     reload();
   }
 
-  async function removeTagGlobal(tag) {
-    if (!confirm(`Delete tag "${tag.name}" from all documents?`)) return;
-    await deleteTag(tag.id);
-    if (activeTag === tag.name) activeTag = null;
-    reload();
+  // ── Helpers ───────────────────────────────────────────────────────────────
+
+  function pillStyle(tag) {
+    if (!activeTags.has(tag.name)) return '';
+    const c = tag.color || '#3b82f6';
+    return `color:${c};border-color:${c};background:${c}1a`;
+  }
+
+  function tagColor(name) {
+    return allTags.find(t => t.name === name)?.color ?? '#6b7280';
   }
 </script>
 
@@ -189,16 +206,36 @@
 
     {#if allTags.length > 0}
       <div class="tag-pills">
-        <button class="pill" class:active={!activeTag} on:click={() => setTag(null)}>All</button>
-        {#each allTags as tag}
+        {#each tagRoots as cat}
           <button
             class="pill"
-            class:active={activeTag === tag.name}
-            on:click={() => setTag(tag.name)}
-          >{tag.name}</button>
+            class:active={activeTags.has(cat.name)}
+            style={pillStyle(cat)}
+            on:click={() => toggleTag(cat.name)}
+          >{cat.name}</button>
+          {#each tagChildOf(cat.id) as child}
+            <button
+              class="pill child-pill"
+              class:active={activeTags.has(child.name)}
+              style={pillStyle(child)}
+              on:click={() => toggleTag(child.name)}
+            >{child.name}</button>
+          {/each}
         {/each}
+
+        {#if activeTags.size > 1}
+          <button
+            class="mode-btn"
+            on:click={() => { tagMode = tagMode === 'or' ? 'and' : 'or'; reload(); }}
+          >{tagMode.toUpperCase()}</button>
+        {/if}
+        {#if activeTags.size > 0}
+          <button class="clear-btn" on:click={clearTags} title="Clear filters">✕</button>
+        {/if}
       </div>
     {/if}
+
+    <a class="manage-link" href="#/tags">Manage tags</a>
   </div>
 
   {#if Object.keys(processingDocs).length > 0}
@@ -220,13 +257,19 @@
     <h2>
       Library
       {#if docs.length > 0}({docs.length}){/if}
-      {#if activeTag}<span class="tag-badge">{activeTag}</span>{/if}
+      {#each [...activeTags] as name}
+        {@const c = tagColor(name)}
+        <span class="tag-badge" style="color:{c};border-color:{c};background:{c}1a">{name}</span>
+      {/each}
+      {#if activeTags.size > 1}
+        <span class="mode-badge">{tagMode.toUpperCase()}</span>
+      {/if}
     </h2>
     {#if loading}
       <p class="hint">Loading…</p>
     {:else if docs.length === 0}
       <p class="hint">
-        {activeTag ? `No documents with tag "${activeTag}".` : 'No documents yet — drop a PDF here or click Upload.'}
+        {activeTags.size > 0 ? 'No documents match the selected tags.' : 'No documents yet — drop a PDF here or click Upload.'}
       </p>
     {:else}
       <div class="grid">
@@ -235,7 +278,7 @@
             {doc}
             {allTags}
             on:open={() => openDoc(doc)}
-            on:filter-tag={(e) => setTag(e.detail)}
+            on:filter-tag={(e) => toggleTag(e.detail)}
             on:edit-tags={(e) => openTagModal(e.detail)}
             on:delete={(e) => handleDelete(e.detail)}
           />
@@ -245,7 +288,7 @@
   </section>
 </div>
 
-<!-- ── Tag management modal ── -->
+<!-- ── Tag assignment modal ── -->
 {#if editingDoc}
   <!-- svelte-ignore a11y-click-events-have-key-events -->
   <div class="backdrop" on:click={closeTagModal}>
@@ -258,25 +301,35 @@
 
       <div class="modal-body">
         {#if allTags.length === 0}
-          <p class="hint" style="padding:0">No tags yet. Create one below.</p>
+          <p class="hint" style="padding:0 10px">No tags yet — <a href="#/tags" on:click={closeTagModal}>create some</a>.</p>
         {:else}
-          {#each allTags as tag}
-            <div class="tag-row">
+          {#each tagRoots as cat}
+            <!-- category header -->
+            <div class="modal-cat-header">
+              <span class="modal-dot" style="background:{cat.color}"></span>
               <label class="tag-check">
                 <input
                   type="checkbox"
-                  checked={(editingDoc.tags ?? []).includes(tag.name)}
-                  on:change={(e) => toggleDocTag(tag, e.target.checked)}
+                  checked={(editingDoc.tags ?? []).includes(cat.name)}
+                  on:change={(e) => toggleDocTag(cat, e.target.checked)}
                 />
-                <span class="tag-name">{tag.name}</span>
+                <span class="tag-name">{cat.name}</span>
               </label>
-              <button
-                type="button"
-                class="del-btn"
-                on:click={() => removeTagGlobal(tag)}
-                title="Delete tag globally"
-              >✕</button>
             </div>
+            <!-- children -->
+            {#each tagChildOf(cat.id) as child}
+              <div class="tag-row child-tag-row">
+                <span class="modal-dot" style="background:{child.color}"></span>
+                <label class="tag-check">
+                  <input
+                    type="checkbox"
+                    checked={(editingDoc.tags ?? []).includes(child.name)}
+                    on:change={(e) => toggleDocTag(child, e.target.checked)}
+                  />
+                  <span class="tag-name">{child.name}</span>
+                </label>
+              </div>
+            {/each}
           {/each}
         {/if}
       </div>
@@ -285,10 +338,13 @@
         <input
           class="tag-input"
           bind:value={newTagName}
-          placeholder="New tag name…"
-          on:keydown={onTagKeydown}
+          placeholder="Quick add tag…"
+          on:keydown={e => { if (e.key==='Enter') addNewTag(); if (e.key==='Escape') closeTagModal(); }}
         />
         <button class="btn-add" on:click={addNewTag}>Add</button>
+      </div>
+      <div class="modal-manage">
+        <a href="#/tags" on:click={closeTagModal}>Manage tags →</a>
       </div>
     </div>
   </div>
@@ -361,6 +417,7 @@
     display: flex;
     flex-wrap: wrap;
     gap: 4px;
+    align-items: center;
   }
   .pill {
     background: none;
@@ -372,8 +429,48 @@
     cursor: pointer;
     transition: color 80ms, border-color 80ms, background 80ms;
   }
-  .pill:hover  { color: #ccc; border-color: #444; }
-  .pill.active { color: #93c5fd; border-color: #3b82f6; background: rgba(59,130,246,.12); }
+  .pill:hover { color: #ccc; border-color: #444; }
+
+  .child-pill {
+    font-size: .68rem;
+    padding: 2px 8px;
+    opacity: .85;
+  }
+
+  .mode-btn {
+    background: #1e1e1e;
+    border: 1px solid #3b82f6;
+    color: #3b82f6;
+    border-radius: 5px;
+    padding: 2px 8px;
+    font-size: .65rem;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: .04em;
+    transition: background 80ms;
+  }
+  .mode-btn:hover { background: rgba(59,130,246,.15); }
+
+  .clear-btn {
+    background: none;
+    border: none;
+    color: #555;
+    font-size: .72rem;
+    cursor: pointer;
+    padding: 2px 5px;
+    transition: color 80ms;
+  }
+  .clear-btn:hover { color: #ccc; }
+
+  .manage-link {
+    margin-left: auto;
+    font-size: .72rem;
+    color: #444;
+    text-decoration: none;
+    transition: color 80ms;
+    flex-shrink: 0;
+  }
+  .manage-link:hover { color: #888; }
 
   /* ── Sections ── */
   section { margin-bottom: 36px; }
@@ -381,7 +478,8 @@
   h2 {
     display: flex;
     align-items: center;
-    gap: 8px;
+    flex-wrap: wrap;
+    gap: 6px;
     font-size: .75rem;
     text-transform: uppercase;
     letter-spacing: .08em;
@@ -389,14 +487,18 @@
     margin-bottom: 14px;
   }
   .tag-badge {
-    font-size: .68rem;
-    background: rgba(59,130,246,.15);
-    color: #93c5fd;
-    border: 1px solid #3b82f6;
+    font-size: .66rem;
+    border: 1px solid;
     border-radius: 10px;
-    padding: 1px 8px;
+    padding: 1px 7px;
     text-transform: none;
     letter-spacing: 0;
+  }
+  .mode-badge {
+    font-size: .6rem;
+    font-weight: 700;
+    color: #555;
+    letter-spacing: .06em;
   }
 
   .grid {
@@ -406,6 +508,7 @@
   }
 
   .hint { color: #555; font-size: .875rem; }
+  .hint a { color: #3b82f6; }
 
   /* ── Processing section ── */
   .processing { margin-bottom: 28px; }
@@ -446,7 +549,7 @@
     flex-shrink: 0;
   }
 
-  /* ── Tag management modal ── */
+  /* ── Tag assignment modal ── */
   .backdrop {
     position: fixed;
     inset: 0;
@@ -461,7 +564,7 @@
     background: #1c1c1c;
     border: 1px solid #2e2e2e;
     border-radius: 10px;
-    width: 340px;
+    width: 320px;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
@@ -505,21 +608,39 @@
     scrollbar-color: #333 transparent;
   }
 
+  .modal-cat-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px 1px;
+    margin-top: 4px;
+  }
+
   .tag-row {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 6px;
     border-radius: 5px;
     transition: background 60ms;
+    padding: 0 6px;
   }
   .tag-row:hover { background: #252525; }
+
+  .child-tag-row { padding-left: 22px; }
+
+  .modal-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
 
   .tag-check {
     display: flex;
     align-items: center;
     gap: 8px;
     flex: 1;
-    padding: 5px 10px;
+    padding: 5px 4px;
     cursor: pointer;
   }
   .tag-check input[type="checkbox"] {
@@ -529,22 +650,10 @@
   }
   .tag-name { font-size: .82rem; color: #ccc; }
 
-  .del-btn {
-    background: none;
-    border: none;
-    color: #444;
-    font-size: .7rem;
-    cursor: pointer;
-    padding: 2px 5px;
-    transition: color 80ms;
-    flex-shrink: 0;
-  }
-  .del-btn:hover { color: #e55; }
-
   .modal-footer {
     display: flex;
     gap: 6px;
-    padding: 10px 12px 12px;
+    padding: 10px 12px 8px;
     border-top: 1px solid #262626;
     flex-shrink: 0;
   }
@@ -571,4 +680,17 @@
     flex-shrink: 0;
   }
   .btn-add:hover { background: #2563eb; }
+
+  .modal-manage {
+    padding: 6px 16px 10px;
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .modal-manage a {
+    font-size: .72rem;
+    color: #444;
+    text-decoration: none;
+    transition: color 80ms;
+  }
+  .modal-manage a:hover { color: #93c5fd; }
 </style>

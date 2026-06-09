@@ -17,14 +17,16 @@ router = APIRouter()
 
 @router.get("/docs")
 async def list_docs(
-    tag: str = None,
+    tags: str = None,       # comma-separated tag names
+    tag_mode: str = "or",   # "or" | "and"
     q: str = None,
     sort: str = "recent",
     limit: int = 50,
     offset: int = 0,
 ):
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
     return get_docs_gallery(
-        state.conn, tag=tag, q=q, sort=sort, limit=limit, offset=offset
+        state.conn, tags=tag_list, tag_mode=tag_mode, q=q, sort=sort, limit=limit, offset=offset
     )
 
 

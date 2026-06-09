@@ -1,8 +1,9 @@
 from __future__ import annotations
+from typing import Optional
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
 
-from app.db import get_all_tags, create_tag, delete_tag, add_doc_tag, remove_doc_tag
+from app.db import get_all_tags, create_tag, update_tag, delete_tag, add_doc_tag, remove_doc_tag
 from app.state import state
 
 router = APIRouter()
@@ -10,6 +11,14 @@ router = APIRouter()
 
 class TagCreate(BaseModel):
     name: str
+    color: str = "#6b7280"
+    parent_id: Optional[int] = None
+
+
+class TagUpdate(BaseModel):
+    name: Optional[str] = None
+    color: Optional[str] = None
+    parent_id: Optional[int] = None  # send null to clear parent
 
 
 @router.get("/tags")
@@ -22,7 +31,26 @@ async def new_tag(body: TagCreate):
     name = body.name.strip()
     if not name:
         raise HTTPException(400, "Tag name cannot be empty")
-    return create_tag(state.conn, name)
+    return create_tag(state.conn, name, color=body.color, parent_id=body.parent_id)
+
+
+@router.patch("/tags/{tag_id:int}")
+async def edit_tag(tag_id: int, body: TagUpdate):
+    fs = body.model_fields_set
+    kwargs = {}
+    if "name" in fs:
+        name = (body.name or "").strip()
+        if not name:
+            raise HTTPException(400, "Tag name cannot be empty")
+        kwargs["name"] = name
+    if "color" in fs:
+        kwargs["color"] = body.color
+    if "parent_id" in fs:
+        kwargs["parent_id"] = body.parent_id
+    result = update_tag(state.conn, tag_id, **kwargs)
+    if result is None:
+        raise HTTPException(404, "Tag not found")
+    return result
 
 
 @router.delete("/tags/{tag_id:int}")
