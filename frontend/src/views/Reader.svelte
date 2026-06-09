@@ -358,7 +358,7 @@
               {#if textWords.length > 0}
                 <div class="text-layer" class:no-pointer={zoom > 1.0}>
                   {#each textWords as w}
-                    <span style="left:{w.x*100}%;top:{w.y*100}%;width:{w.w*100}%;height:{w.h*100}%">{w.t}</span>
+                    <span style="left:{w.x*100}%;top:{w.y*100}%;width:{w.w*100}%;height:{w.h*100}%">{w.t} </span>
                   {/each}
                 </div>
               {/if}
@@ -374,7 +374,7 @@
                 {#if textWordsRight.length > 0}
                   <div class="text-layer" class:no-pointer={zoom > 1.0}>
                     {#each textWordsRight as w}
-                      <span style="left:{w.x*100}%;top:{w.y*100}%;width:{w.w*100}%;height:{w.h*100}%">{w.t}</span>
+                      <span style="left:{w.x*100}%;top:{w.y*100}%;width:{w.w*100}%;height:{w.h*100}%">{w.t} </span>
                     {/each}
                   </div>
                 {/if}
@@ -408,7 +408,7 @@
             {#if textWords.length > 0}
               <div class="text-layer" class:no-pointer={zoom > 1.0}>
                 {#each textWords as w}
-                  <span style="left:{w.x*100}%;top:{w.y*100}%;width:{w.w*100}%;height:{w.h*100}%">{w.t}</span>
+                  <span style="left:{w.x*100}%;top:{w.y*100}%;width:{w.w*100}%;height:{w.h*100}%">{w.t} </span>
                 {/each}
               </div>
             {/if}
