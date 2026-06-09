@@ -18,7 +18,7 @@
   }, {});
 
   // ── create form ──────────────────────────────────────────────────────────────
-  let creating    = null;   // null | 'root' | 'child'
+  let creating    = false;
   let newName     = '';
   let newColor    = COLORS[6];
   let newParentId = null;
@@ -36,19 +36,19 @@
 
   onMount(load);
 
-  function startCreate(type) {
-    creating    = type;
+  function startCreate() {
+    creating    = true;
     newName     = '';
     newColor    = COLORS[6];
-    newParentId = type === 'child' ? (roots[0]?.id ?? null) : null;
+    newParentId = null;
     editId      = null;
   }
 
   async function saveNew() {
     const name = newName.trim();
     if (!name) return;
-    await createTag(name, newColor, creating === 'child' ? newParentId : null);
-    creating = null;
+    await createTag(name, newColor, newParentId);
+    creating = false;
     await load();
   }
 
@@ -57,7 +57,7 @@
     editName     = tag.name;
     editColor    = tag.color;
     editParentId = tag.parent_id;
-    creating     = null;
+    creating     = false;
   }
 
   function cancelEdit() { editId = null; }
@@ -73,7 +73,7 @@
   async function del(tag) {
     const children = childMap[tag.id] ?? [];
     const msg = children.length > 0
-      ? `Delete "${tag.name}"? Its ${children.length} sub-tag(s) will become top-level.`
+      ? `Delete "${tag.name}"? Its ${children.length} child tag(s) will become top-level.`
       : `Delete tag "${tag.name}"?`;
     if (!confirm(msg)) return;
     await deleteTag(tag.id);
@@ -86,15 +86,14 @@
     <a href="#/" class="back">← Library</a>
     <h1>Tag Management</h1>
     <div class="header-actions">
-      <button class="btn-new" on:click={() => startCreate('root')}>＋ Category</button>
-      <button class="btn-new" on:click={() => startCreate('child')} disabled={roots.length === 0}>＋ Tag</button>
+      <button class="btn-new" on:click={startCreate}>＋ New tag</button>
     </div>
   </header>
 
   <!-- ── Create form ── -->
   {#if creating}
     <div class="form-card">
-      <div class="form-title">{creating === 'root' ? 'New category' : 'New tag'}</div>
+      <div class="form-title">New tag</div>
 
       <label class="field">
         <span class="flabel">Name</span>
@@ -102,22 +101,21 @@
         <input
           class="finput"
           bind:value={newName}
-          placeholder={creating === 'root' ? 'Category name…' : 'Tag name…'}
-          on:keydown={e => { if (e.key==='Enter') saveNew(); if (e.key==='Escape') creating=null; }}
+          placeholder="Tag name…"
+          on:keydown={e => { if (e.key==='Enter') saveNew(); if (e.key==='Escape') creating=false; }}
           autofocus
         />
       </label>
 
-      {#if creating === 'child'}
-        <label class="field">
-          <span class="flabel">Category</span>
-          <select class="finput" bind:value={newParentId}>
-            {#each roots as r}
-              <option value={r.id}>{r.name}</option>
-            {/each}
-          </select>
-        </label>
-      {/if}
+      <label class="field">
+        <span class="flabel">Parent tag <span class="opt">(optional)</span></span>
+        <select class="finput" bind:value={newParentId}>
+          <option value={null}>— none (top-level) —</option>
+          {#each roots as r}
+            <option value={r.id}>{r.name}</option>
+          {/each}
+        </select>
+      </label>
 
       <div class="field">
         <span class="flabel">Color</span>
@@ -136,7 +134,7 @@
 
       <div class="form-actions">
         <button class="btn-save" on:click={saveNew}>Create</button>
-        <button class="btn-cancel" on:click={() => creating = null}>Cancel</button>
+        <button class="btn-cancel" on:click={() => creating = false}>Cancel</button>
       </div>
     </div>
   {/if}
@@ -145,7 +143,7 @@
   {#if loading}
     <p class="hint">Loading…</p>
   {:else if tags.length === 0 && !creating}
-    <p class="hint">No tags yet. Create a category to get started.</p>
+    <p class="hint">No tags yet. Click "New tag" to get started.</p>
   {:else}
     <div class="list">
       {#each roots as root}
@@ -153,12 +151,24 @@
         <!-- root tag row -->
         {#if editId === root.id}
           <div class="edit-row">
-            <div class="form-title">Edit category</div>
+            <div class="form-title">Edit tag</div>
             <label class="field">
               <span class="flabel">Name</span>
               <input class="finput" bind:value={editName}
                 on:keydown={e => { if (e.key==='Enter') saveEdit(); if (e.key==='Escape') cancelEdit(); }} />
             </label>
+            <!-- tag with children can't become a child itself -->
+            {#if !(childMap[root.id]?.length > 0)}
+              <label class="field">
+                <span class="flabel">Parent tag <span class="opt">(optional)</span></span>
+                <select class="finput" bind:value={editParentId}>
+                  <option value={null}>— none (top-level) —</option>
+                  {#each roots.filter(r => r.id !== root.id) as r}
+                    <option value={r.id}>{r.name}</option>
+                  {/each}
+                </select>
+              </label>
+            {/if}
             <div class="field">
               <span class="flabel">Color</span>
               <div class="palette">
@@ -194,9 +204,9 @@
                   on:keydown={e => { if (e.key==='Enter') saveEdit(); if (e.key==='Escape') cancelEdit(); }} />
               </label>
               <label class="field">
-                <span class="flabel">Category</span>
+                <span class="flabel">Parent tag <span class="opt">(optional)</span></span>
                 <select class="finput" bind:value={editParentId}>
-                  <option value={null}>— Top level —</option>
+                  <option value={null}>— none (top-level) —</option>
                   {#each roots.filter(r => r.id !== child.id) as r}
                     <option value={r.id}>{r.name}</option>
                   {/each}
@@ -278,8 +288,7 @@
     cursor: pointer;
     transition: border-color 80ms, color 80ms;
   }
-  .btn-new:hover:not(:disabled) { border-color: #3b82f6; color: #93c5fd; }
-  .btn-new:disabled { opacity: .35; cursor: default; }
+  .btn-new:hover { border-color: #3b82f6; color: #93c5fd; }
 
   /* ── Form card (create) ── */
   .form-card {
@@ -311,6 +320,12 @@
     color: #555;
     text-transform: uppercase;
     letter-spacing: .06em;
+  }
+
+  .opt {
+    text-transform: none;
+    letter-spacing: 0;
+    color: #3a3a3a;
   }
 
   .finput {
